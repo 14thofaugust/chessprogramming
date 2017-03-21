@@ -52,7 +52,7 @@ void evaluate(tree_t *T, result_t *result){
 
         /* évalue récursivement les positions accessibles à partir d'ici */
 
-  #pragma	omp parallel for schedule(dynamic)
+  #pragma	omp parallel for schedule(runtime)
     for (int i = 0; i < n_moves; i++) {
 
 		  tree_t child;
@@ -65,7 +65,8 @@ void evaluate(tree_t *T, result_t *result){
                
       int child_score = -child_result.score;
 
-      #pragma omp taskwait
+      #pragma omp critical
+      {
   		if (child_score > result->score) {
   			result->score = child_score;
   			result->best_move = moves[i];
@@ -76,7 +77,7 @@ void evaluate(tree_t *T, result_t *result){
 
         result->PV[0] = moves[i];
         }
-
+      }
                 //if (ALPHA_BETA_PRUNING && child_score >= T->beta)
                   //break;    
 
@@ -135,12 +136,15 @@ int main(int argc, char **argv){
         
   debut = my_gettimeofday();
 
+
 	decide(&root, &result);
 
 	fin = my_gettimeofday();
   printf("\nTemps total de calcul : %g seconde(s) \n", fin - debut);
 
   printf("\nDécision de la position: ");
+
+  //#pragma omp single
     switch(result.score * (2*root.side - 1)) {
       case MAX_SCORE: printf("blanc gagne\n"); break;
       case CERTAIN_DRAW: printf("partie nulle\n"); break;
