@@ -144,7 +144,7 @@ int main(int argc, char **argv){
 
   printf("\nDécision de la position: ");
 
-  //#pragma omp single
+  #pragma omp single
     switch(result.score * (2*root.side - 1)) {
       case MAX_SCORE: printf("blanc gagne\n"); break;
       case CERTAIN_DRAW: printf("partie nulle\n"); break;
