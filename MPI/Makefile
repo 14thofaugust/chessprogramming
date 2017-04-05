@@ -1,0 +1,24 @@
+target: decide
+#CC=gcc
+CC=mpicc
+CFLAGS= -g -O3 -std=c99
+
+main-MPI_v2.o: main-MPI_v2.c projet.h
+#main.o: main.c projet.h
+aux.o: aux.c projet.h
+
+#decide: main.o aux.o
+decide: main-MPI_v2.o aux.o
+	$(CC) $(CFLAGS) $^ -o $@
+
+.PHONY: clean exec
+
+clean:
+	rm -f *.o decide
+
+exec:
+#	./decide "4k//4K/4P w"
+#	mpirun -n 4 -hostfile hostfile --bynode ./decide "7K//k1P/7p w"
+#	mpirun -n 4 -hostfile hostfile --map-bynode ./decide "7K//k1P/7p w" 
+	mpirun -n 4 -hostfile hostfile --bynode ./decide "4k//4K/4P w"
+#	mpirun -n 4 -hostfile hostfile --bynode ./decide "/ppp//PPP//7k//7K w"
