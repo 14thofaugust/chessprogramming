@@ -53,17 +53,29 @@ void evaluate(tree_t *T, result_t *result){
 
         /* évalue récursivement les positions accessibles à partir d'ici */
 
-  #pragma	omp parallel for schedule(runtime)
-   // #pragma omp task
+
+  
+/* paralleliser la boucle for en utilisant les taches */
+
+#pragma omp parallel
+{
+  //#pragma omp single nowait
+    #pragma omp for schedule(runtime)
     for (int i = 0; i < n_moves; i++) {
 
 		  tree_t child;
       result_t child_result;
-      
+  
+      //#pragma omp single nowait
+
+      #pragma omp task
+      {
       play_move(T, moves[i], &child);
       
+      //#pragma omp task
       evaluate(&child, &child_result);
-               
+       }
+
       int child_score = -child_result.score;
 
       #pragma omp taskwait
@@ -77,13 +89,14 @@ void evaluate(tree_t *T, result_t *result){
           result->PV[j+1] = child_result.PV[j];
 
         result->PV[0] = moves[i];
+          }
         }
-      }
-                //if (ALPHA_BETA_PRUNING && child_score >= T->beta)
-                  //break;    
+        //if (ALPHA_BETA_PRUNING && child_score >= T->beta)
+        // break;    
 
         T->alpha = MAX(T->alpha, child_score);
-        }
+    }
+  }
 
         if (TRANSPOSITION_TABLE)
           tt_store(T, result);
@@ -100,12 +113,15 @@ void decide(tree_t * T, result_t *result){
 
     printf("=====================================\n");
 	
-    //#pragma 
+  #pragma omp parallel
+    #pragma omp task
     evaluate(T, result);
 
     printf("depth: %d / score: %.2f / best_move : ", T->depth, 0.01 * result->score);
     print_pv(T, result);
     
+    #pragma omp taskwait
+
     if (DEFINITIVE(result->score))
       break;
 	}
@@ -138,6 +154,7 @@ int main(int argc, char **argv){
   debut = my_gettimeofday();
 
 
+  //#pragma omp single nowait
 	decide(&root, &result);
 
 	fin = my_gettimeofday();
