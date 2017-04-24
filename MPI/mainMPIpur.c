@@ -76,7 +76,7 @@ void evaluate(tree_t *T, result_t *result){
               }
 
                 if (ALPHA_BETA_PRUNING && child_score >= T->beta)
-                  //break;    
+                  break;    
 
                 T->alpha = MAX(T->alpha, child_score);
         }
@@ -85,13 +85,15 @@ void evaluate(tree_t *T, result_t *result){
           tt_store(T, result);
 }
 
+
+
 /*-----------------------------------------------------------------------------------------------------------*/
 
-void evaluate_master_slave(tree_t *T, result_t *result, int *n_rang, int *size){
+void evaluate_master_slave(tree_t *T, result_t *result, int rang, int size){
   
-
-  int nn_rang = *n_rang;
   node_searched++;
+
+
 
   move_t moves[MAX_MOVES];
   int n_moves;
@@ -103,8 +105,8 @@ void evaluate_master_slave(tree_t *T, result_t *result, int *n_rang, int *size){
   if (test_draw_or_victory(T, result))
     return;
 
-  //if (TRANSPOSITION_TABLE && tt_lookup(T, result))     /* la réponse est-elle déjà connue ? */
-    //return;
+  if (TRANSPOSITION_TABLE && tt_lookup(T, result))     /* la réponse est-elle déjà connue ? */
+    return;
   
   compute_attack_squares(T);
 
@@ -114,26 +116,13 @@ void evaluate_master_slave(tree_t *T, result_t *result, int *n_rang, int *size){
     return;
   }
   
-  //n_moves = generate_legal_moves(T, &moves[0]);
-
-  /* absence de coups légaux : pat ou mat */
-  //if (n_moves == 0) {
-          //result->score = check(T) ? -MAX_SCORE : CERTAIN_DRAW;
-          //return;
-        //}
-  
-  //if (ALPHA_BETA_PRUNING)
-    //sort_moves(T, n_moves, moves);
 
 /*-----------------------------------------------------------------------------------------------------------*/
   // MPI parametres
 
   MPI_Status status;
-
-
-
-  //MPI_Comm_rank(MPI_COMM_WORLD,&n_rang);
-  //MPI_Comm_size(MPI_COMM_WORLD, &size);
+  MPI_Request request;
+  int flag;
 
 /*-----------------------------------------------------------------------------------------------------------*/
 /* création d'un nouveau type MPI "result_t" */
@@ -175,129 +164,119 @@ void evaluate_master_slave(tree_t *T, result_t *result, int *n_rang, int *size){
   MPI_Type_create_struct(14, block, display, ancientType, &MPI_tree);
   MPI_Type_commit(&MPI_tree);*/
 
-
 /*-----------------------------------------------------------------------------------------------------------*/
 
-/* MASTER ZONE */
 
-if(nn_rang == 0){
-  
-  n_moves = generate_legal_moves(T, &moves[0]);
+
+n_moves = generate_legal_moves(T, &moves[0]);
   /* absence de coups légaux : pat ou mat */
   if (n_moves == 0) {
           result->score = check(T) ? -MAX_SCORE : CERTAIN_DRAW;
           return;
         }
 
+  if (ALPHA_BETA_PRUNING)
+    sort_moves(T, n_moves, moves);
 
+
+/*-----------------------------------------------------------------------------------------------------------*/
+
+/* MASTER ZONE */
+
+if(rang == 0){
 
   result_t resultat;
 
-  tree_t arbre;
   int r_tache = 0;
   int n_tache = 0;
 
 
-  int n_size = *size;
-  for(int p = 1; p < n_size; p++){
-    if(n_tache < n_moves){
-      MPI_Send(&moves[n_tache], 1, MPI_INT, p, TAG_DATA, MPI_COMM_WORLD);
-      n_tache++;
+  int taches[n_moves];
 
+  for(int p = 1; p < size; p++){
+    if(n_tache < n_moves){
+      MPI_Send(&n_tache, 1, MPI_INT, p, TAG_DATA, MPI_COMM_WORLD);
+      taches[p]=n_tache;
+      n_tache++;
     }
   }
 
+
+
   while((r_tache < n_tache) || (n_tache < n_moves)){
-      
 
     if(r_tache < n_tache){
       MPI_Recv(&resultat, 1, MPI_resultat, MPI_ANY_SOURCE, TAG_DATA, MPI_COMM_WORLD, &status);
-      r_tache++;
-    
+
       int child_score = -resultat.score;
 
       if (child_score > result->score) {
         result->score = child_score;
-        result->best_move = moves[r_tache];
+        result->best_move = moves[taches[status.MPI_SOURCE]];
+
         result->pv_length = resultat.pv_length + 1;
-          for(int j = 0; j < resultat.pv_length; j++)
-            result->PV[j+1] = resultat.PV[j];
-        result->PV[0] = moves[r_tache];
-        
+        for(int j = 0; j < resultat.pv_length; j++)
+          result->PV[j+1] = resultat.PV[j];
+        result->PV[0] = moves[taches[status.MPI_SOURCE]];
+
       }
+      r_tache++;
+
+      if (ALPHA_BETA_PRUNING && child_score >= T->beta)
+                  break;    
+
+         T->alpha = MAX(T->alpha, child_score);
     }
-        /*int child_score = -child_result.score;
-
-                if (child_score > result->score) {
-                  result->score = child_score;
-                  result->best_move = moves[i];
-                  result->pv_length = child_result.pv_length + 1;
-                    for(int j = 0; j < child_result.pv_length; j++)
-                      result->PV[j+1] = child_result.PV[j];
-                    result->PV[0] = moves[i];*/
-
-      //T->alpha = MAX(T->alpha, child_score);
-      //printf("T->alpha = %d", T->alpha);
-    //}
 
     if(n_tache < n_moves){
-        MPI_Send(&moves[n_tache], 1, MPI_INT, status.MPI_SOURCE, TAG_DATA, MPI_COMM_WORLD);
+        MPI_Send(&n_tache, 1, MPI_INT, status.MPI_SOURCE, TAG_DATA, MPI_COMM_WORLD);
         n_tache++;
       }
 
-    /* s'il ny a plus de coup c'est que le master a terminé */
-    else{
-      //break;
-      printf("master has finished \n");
-    }
-
   }
-     for(int p = 1; p < n_size; p++){
+     for(int p = 1; p < size; p++){
       MPI_Send(0, 0, MPI_INT, p, TAG_END, MPI_COMM_WORLD);
     }
-  
 }
 
 /*-----------------------------------------------------------------------------------------------------------*/
 
 /* SLAVES ZONE */
 
-if(nn_rang != 0){
+if(rang != 0){
 
   int n_tache;
-  //int r_tache = 0;
+  
+    while(1){
+    MPI_Recv(&n_tache, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 
-  while(1/*r_tache < n_tache*/){
+    if(status.MPI_TAG != TAG_END){
+    /* on verifie si le tag est un TAG DATA*/
 
-/* l'eclave recoit du travail */
-  MPI_Recv(&moves[n_tache], 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-  //r_tache++;
-/* on verifie si le tag est un TAG DATA*/
-    if(status.MPI_TAG == TAG_DATA){
+          tree_t arbre;
+          result_t resultat; 
+          
+          resultat.score = -MAX_SCORE - 1;
+          resultat.pv_length = 0;
 
-      tree_t arbre;
-      result_t resultat; 
-      
-      resultat.score = -MAX_SCORE - 1;
-      resultat.pv_length = 0;
 
-      play_move(T, moves[n_tache], &arbre);
+          play_move(T, moves[n_tache], &arbre);
 
-      evaluate(&arbre, &resultat);
+          evaluate(&arbre, &resultat);
 
-      MPI_Send(&resultat, 1, MPI_resultat, 0, TAG_DATA, MPI_COMM_WORLD);
-    
+          MPI_Send(&resultat, 1, MPI_resultat, 0, TAG_DATA, MPI_COMM_WORLD);
+
+        
+        }
+
+      else {    break;  }
     }
-  else { break;  }
-  }
+  
 }
 
 /*-----------------------------------------------------------------------------------------------------------*/
 
   MPI_Type_free(&MPI_resultat);
-  //MPI_Type_free(&MPI_tree);
-
-  MPI_Barrier(MPI_COMM_WORLD);
   
   }
 
@@ -306,12 +285,10 @@ if(nn_rang != 0){
 /*-----------------------------------------------------------------------------------------------------------*/
 
 
-void decide(tree_t *T, result_t *result, int *n_rang, int *size){
+void decide(tree_t *T, result_t *result, int rang, int size){
 
   int arret = 0;
 
-  int rang;
-  MPI_Comm_rank(MPI_COMM_WORLD, &rang);
 
   for (int depth = 1;!arret; depth++) {
     T->depth = depth;
@@ -319,34 +296,32 @@ void decide(tree_t *T, result_t *result, int *n_rang, int *size){
     T->alpha_start = T->alpha = -MAX_SCORE - 1;
     T->beta = MAX_SCORE + 1;
 
-
-    if(*n_rang == 0){
+    if(rang == 0){
       printf("=====================================\n");
 
 
-      (depth > 3) ? evaluate_master_slave(T, result, n_rang, size) : evaluate(T, result);
+      //(depth > 2) ? evaluate_master_slave(T, result, rang, size) : evaluate(T, result);
+      evaluate_master_slave(T, result, rang, size);
 
       printf("depth: %d / score: %.2f / best_move : ", T->depth, 0.01 * result->score);
       print_pv(T, result);
 
 
     if (DEFINITIVE(result->score)){
-        //printf("break break break processeur %d\n", *n_rang);
         //break;
         arret = 1;
-    }
+      }
 
-      MPI_Bcast(&arret, 1, MPI_INT, rang, MPI_COMM_WORLD);
+      MPI_Bcast(&arret, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
   }
 
   else{
-    if(depth > 3)
-      evaluate_master_slave(T, result, n_rang, size);
+    //if(depth > 2)
+      evaluate_master_slave(T, result, rang, size);
 
-      MPI_Bcast(&arret, 1, MPI_INT, rang, MPI_COMM_WORLD);
-
-  }
+      MPI_Bcast(&arret, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    }
 
   }
 }
@@ -359,13 +334,13 @@ int main(int argc, char **argv){
 
 
   /* les paramètres de l'environement MPI */
-  int n_rang; /* le rang */
   int size; /* nombre de processus */
   MPI_Status status;
-
+  int rang ; /* le rang */
+  
   MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &size);
-  MPI_Comm_rank(MPI_COMM_WORLD, &n_rang);
+  MPI_Comm_rank(MPI_COMM_WORLD, &rang);
 
   tree_t root;
   result_t result;
@@ -386,18 +361,23 @@ int main(int argc, char **argv){
   }
   
   parse_FEN(argv[1], &root);
-  if(n_rang == 0)
+  if(rang == 0)
     print_position(&root);
   
   debut = my_gettimeofday();
   
-  decide(&root, &result, &n_rang, &size);
+  decide(&root, &result, rang, size);
 
   fin = my_gettimeofday();
+
+  if(rang == 0)
   printf("\nTemps total de calcul : %g seconde(s) \n", fin - debut);
   
+
+  if (rang == 0){
+    unsigned long long int node = 0;
+    MPI_Reduce(&node_searched, &node, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     
-  if (n_rang == 0){
     printf("\nDécision de la position: ");
           switch(result.score * (2*root.side - 1)) {
           case MAX_SCORE: printf("blanc gagne\n"); break;
@@ -406,12 +386,16 @@ int main(int argc, char **argv){
           default: printf("BUG\n");
           }
 
-          printf("Node searched: %llu\n", node_searched);
+          printf("Node searched: %llu\n", node);
+  }
+  else {
+        MPI_Reduce(&node_searched, NULL, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+
   }
 
 
-        if (TRANSPOSITION_TABLE)
-          free_tt();
+  if (TRANSPOSITION_TABLE)
+    free_tt();
 
 
     MPI_Finalize();
