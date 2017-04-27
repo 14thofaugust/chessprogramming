@@ -4,9 +4,7 @@
 #include <mpi.h>
 
 
-#define TAG_BEGIN   1
 #define TAG_DATA    2
-#define TAG_RESULT  4
 #define TAG_END     8
 
 /* 2017-02-23 : version 1.0 */
